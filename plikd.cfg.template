@@ -1,0 +1,48 @@
+// plikd.cfg — configuration Plik, générée par deploy.sh depuis ce template.
+// Format HOCON, réutilise la structure du plikd.cfg officiel du dépôt Plik :
+// https://github.com/root-gg/plik — vérifiez les clés contre la version déployée.
+//
+// Sécurité : ce fichier contient les secrets S3 après substitution,
+// il est exclu par .gitignore et chmod 600 par deploy.sh.
+
+plikd "1.0" {
+
+    // Domaine utilisé par Plik en interne uniquement : la passerelle
+    // génère ses propres liens signés, Plik n'est jamais exposé.
+    Domain = "localhost"
+
+    // Écoute sur le réseau Docker backend uniquement (pas de ports publiés).
+    ListenAddress = "0.0.0.0"
+    ListenPort    = 8080
+
+    // Métadonnées des uploads : SQLite local (volume Docker plik-data).
+    "MetadataBackend" {
+        "File" {
+            "ConnectionString" = "data/plik.db"
+        }
+    }
+
+    // Données binaires : Object Storage Scaleway (S3, UE/fr-par).
+    // Les placeholders __SCW_*__ sont remplacés par deploy.sh.
+    "DataBackend" {
+        "S3" {
+            "Endpoint"        = "__SCW_ENDPOINT__"
+            "AccessKeyID"     = "__SCW_ACCESS_KEY__"
+            "SecretAccessKey" = "__SCW_SECRET_KEY__"
+            "Bucket"          = "__SCW_BUCKET__"
+            "Location"        = "__SCW_REGION__"
+        }
+    }
+
+    // TTL et taille max appliqués aussi côté Plik (défense en profondeur) :
+    // la passerelle impose déjà les siens avant chaque transfert.
+    "Upload" {
+        "DefaultTTL" = 3600
+        "MaxTTL"     = 2592000
+        "OneShot"    = false
+        "Removable"  = true
+        "Stream"     = true
+        // 200 Go par fichier (aligné sur MAX_FILE_BYTES de la passerelle).
+        "MaxFileSize" = 214748364800
+    }
+}

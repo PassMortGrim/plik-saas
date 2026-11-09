@@ -1,0 +1,464 @@
+openapi: 3.1.0
+info:
+  title: Plik-SaaS API
+  version: 1.0.0
+  description: |
+    API multi-tenant de transfert de gros fichiers (jusqu'à 200 Go/fichier),
+    construite sur Plik. Documentation détaillée : docs/index.md.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: https://votre-domaine
+    description: Serveur de production (remplacer par votre domaine)
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: "Clé API au format pk_<id>_<secret>, fournie par l'opérateur SaaS."
+    WidgetTokenAuth:
+      type: apiKey
+      in: header
+      name: X-Widget-Token
+      description: "Jeton lié à un seul upload, pour usage navigateur (widget)."
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Message d'erreur lisible.
+      required: [error]
+    CreateUploadRequest:
+      type: object
+      properties:
+        ttl:
+          type: integer
+          format: int64
+          minimum: 60
+          description: Durée de vie en secondes (défaut 3600, max configurable).
+          default: 3600
+        oneShot:
+          type: boolean
+          description: Chaque fichier disparaît après le premier téléchargement.
+          default: false
+        filename:
+          type: string
+          description: Nom du fichier à venir (assaini côté serveur).
+        size:
+          type: integer
+          format: int64
+          description: Taille annoncée en octets, vérifiée contre le quota.
+    UploadCreated:
+      type: object
+      properties:
+        uploadId:
+          type: string
+        widgetToken:
+          type: string
+          description: Jeton d'upload navigateur, lié à cet upload uniquement.
+        uploadUrl:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        ttl:
+          type: integer
+        oneShot:
+          type: boolean
+      required: [uploadId, widgetToken, uploadUrl, expiresAt, ttl, oneShot]
+    FileMeta:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [pending, uploaded, deleted, missing]
+      required: [id, name, size, status]
+    UploadStatus:
+      type: object
+      properties:
+        uploadId:
+          type: string
+        status:
+          type: string
+          enum: [active, expired, deleted]
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        ttl:
+          type: integer
+        oneShot:
+          type: boolean
+        bytesIn:
+          type: integer
+          format: int64
+        bytesOut:
+          type: integer
+          format: int64
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMeta'
+      required: [uploadId, status, expiresAt, files]
+    LinkCreated:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Lien signé, prêt à partager.
+        expiresAt:
+          type: string
+          format: date-time
+        oneShot:
+          type: boolean
+      required: [url, expiresAt, oneShot]
+    FileUploaded:
+      type: object
+      properties:
+        fileId:
+          type: string
+        filename:
+          type: string
+        size:
+          type: integer
+          format: int64
+      required: [fileId, filename, size]
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /v1/health:
+    get:
+      summary: Sonde de santé publique
+      security: []
+      responses:
+        '200':
+          description: Passerelle opérationnelle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /v1/uploads:
+    post:
+      summary: Créer un upload
+      description: |
+        Crée une session d'upload. Le quota mensuel est vérifié AVANT tout
+        transfert (402 si dépassé). Renvoie un widgetToken pour le navigateur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadRequest'
+      responses:
+        '201':
+          description: Upload créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadCreated'
+        '400':
+          description: Corps invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Clé API absente ou invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Quota mensuel dépassé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Taille annoncée trop grande
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Trop de créations d'uploads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/uploads/{uploadId}:
+    parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Consulter un upload
+      description: Clé API du tenant propriétaire, ou jeton widget de l'upload.
+      security:
+        - ApiKeyAuth: []
+        - WidgetTokenAuth: []
+      responses:
+        '200':
+          description: Statut de l'upload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadStatus'
+        '401':
+          description: Auth manquante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Upload appartenant à un autre tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Upload introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Supprimer un upload
+      description: Purge immédiate des fichiers et émission de upload.deleted.
+      security:
+        - ApiKeyAuth: []
+        - WidgetTokenAuth: []
+      responses:
+        '200':
+          description: Supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  uploadId:
+                    type: string
+        '404':
+          description: Upload introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/uploads/{uploadId}/files:
+    parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: X-Filename
+        in: header
+        required: false
+        schema:
+          type: string
+        description: Nom du fichier (assaini côté serveur).
+      - name: X-File-Size
+        in: header
+        required: false
+        schema:
+          type: integer
+        description: Taille en octets (contrôle quota/limite).
+    post:
+      summary: Envoyer un fichier (streaming)
+      description: |
+        Corps = contenu binaire brut, streamé vers le stockage (mémoire
+        constante). Auth par clé API propriétaire OU jeton widget.
+      security:
+        - ApiKeyAuth: []
+        - WidgetTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Fichier enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploaded'
+        '410':
+          description: Upload expiré côté stockage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Fichier trop volumineux
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Erreur du stockage en amont
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      summary: Lister les fichiers d'un upload
+      security:
+        - ApiKeyAuth: []
+        - WidgetTokenAuth: []
+      responses:
+        '200':
+          description: Liste des fichiers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadId:
+                    type: string
+                  status:
+                    type: string
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileMeta'
+
+  /v1/uploads/{uploadId}/links:
+    parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Créer un lien de partage signé
+      security:
+        - ApiKeyAuth: []
+        - WidgetTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fileId:
+                  type: string
+              required: [fileId]
+      responses:
+        '201':
+          description: Lien créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkCreated'
+        '404':
+          description: Fichier introuvable dans cet upload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /d/{uploadId}/{fileId}/{name}:
+    parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fileId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: t
+        in: query
+        required: true
+        schema:
+          type: string
+        description: Jeton de téléchargement signé dl_<uploadId>.<fileId>_<secret>.
+    get:
+      summary: Télécharger un fichier (lien public signé)
+      security: []
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reprise de téléchargement (HTTP Range) supportée.
+      responses:
+        '200':
+          description: Contenu du fichier
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Réponse partielle (Range)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Jeton invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Lien expiré ou déjà consommé (OneShot)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+webhooks:
+  file.uploaded:
+    summary: Fichier reçu intégralement
+    payload: '{ "id", "type", "createdAt", "tenantId", "data": { "uploadId", "fileId", "filename", "size" } }'
+  file.downloaded:
+    summary: Premier téléchargement complet d'un fichier OneShot
+    payload: '{ "data": { "uploadId", "fileId", "filename", "size", "via" } }'
+  upload.expired:
+    summary: TTL écoulé ou purge amont
+    payload: '{ "data": { "uploadId", "bytesIn", "bytesOut", "expiresAt" } }'
+  upload.deleted:
+    summary: Suppression volontaire
+    payload: '{ "data": { "uploadId", "via" } }'
+  quota.exceeded:
+    summary: Quota mensuel atteint
+    payload: '{ "data": { "quotaBytesPerMonth", "bytesInMonth", "requested" } }'

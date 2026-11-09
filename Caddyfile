@@ -1,0 +1,31 @@
+# Reverse proxy TLS automatique (ACME/Let's Encrypt).
+# Le domaine vient de la variable d'environnement PLIK_DOMAIN,
+# injectée par docker-compose depuis DOMAIN (.env).
+
+{$PLIK_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# API éditeur + téléchargements + widget : passerelle uniquement.
+	handle /v1/* {
+		reverse_proxy gateway:8080
+	}
+	handle /d/* {
+		reverse_proxy gateway:8080
+	}
+	handle /widget {
+		reverse_proxy gateway:8080
+	}
+	handle /widget.js {
+		reverse_proxy gateway:8080
+	}
+
+	# Tout le reste (dont l'interface web Plik) : refus explicite.
+	respond 404
+}

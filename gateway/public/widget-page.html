@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Plik-SaaS — Transfert de fichier</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f6f8;
+      color: #1c2430;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(20, 30, 50, .08);
+      padding: 24px;
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    p.sub { font-size: 12px; color: #6a7482; margin: 0 0 18px; }
+    .drop {
+      border: 2px dashed #b9c2cf;
+      border-radius: 10px;
+      padding: 28px 12px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .drop.over { border-color: #2563eb; background: #eff4ff; }
+    .drop .icon { font-size: 26px; }
+    .drop p { margin: 8px 0 0; font-size: 13px; color: #40506a; }
+    input[type="file"] { display: none; }
+    .progress {
+      margin-top: 16px;
+      display: none;
+      text-align: left;
+    }
+    .progress .bar {
+      height: 8px;
+      background: #e4e8ee;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress .bar > div {
+      height: 100%;
+      width: 0;
+      background: #2563eb;
+      border-radius: 4px;
+      transition: width .2s;
+    }
+    .progress .label { font-size: 12px; color: #40506a; margin-top: 6px; }
+    .link {
+      margin-top: 14px;
+      display: none;
+      text-align: left;
+      font-size: 12px;
+    }
+    .link a { color: #2563eb; word-break: break-all; }
+    .link .meta { color: #6a7482; margin-top: 4px; }
+    .err { color: #b42318; font-size: 12px; margin-top: 10px; min-height: 16px; }
+    button {
+      margin-top: 14px;
+      background: #2563eb;
+      color: #fff;
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button[disabled] { opacity: .5; cursor: default; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Transfert sécurisé de fichiers</h1>
+    <p class="sub">Jusqu'à 200 Go · lien éphémère · chiffrement TLS</p>
+
+    <div class="drop" id="drop" role="button" tabindex="0" aria-label="Choisir un fichier">
+      <div class="icon">📁</div>
+      <p>Glissez votre fichier ici<br>ou cliquez pour choisir</p>
+    </div>
+    <input type="file" id="file">
+
+    <div class="progress" id="progress">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="label" id="plabel"></div>
+    </div>
+
+    <div class="link" id="linkbox">
+      <div>Lien de téléchargement :</div>
+      <a id="link" href="#" rel="noopener"></a>
+      <div class="meta" id="linkmeta"></div>
+      <button id="copy" type="button">Copier le lien</button>
+    </div>
+
+    <div class="err" id="err" role="alert"></div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      // Le baseUrl est déduit de l'origine de l'iframe (same-origin).
+      var BASE = window.location.origin;
+      // tenantId transmis par l'éditeur via ?tenant= (pour le preflight CORS).
+      var TENANT = new URLSearchParams(window.location.search).get('tenant') || '';
+
+      var drop = document.getElementById('drop');
+      var fileInput = document.getElementById('file');
+      var progress = document.getElementById('progress');
+      var bar = document.getElementById('bar');
+      var plabel = document.getElementById('plabel');
+      var linkbox = document.getElementById('linkbox');
+      var link = document.getElementById('link');
+      var linkmeta = document.getElementById('linkmeta');
+      var errBox = document.getElementById('err');
+      var copyBtn = document.getElementById('copy');
+
+      function setErr(msg) { errBox.textContent = msg || ''; }
+
+      // Création de l'upload : la clé API n'est JAMAIS exposée ici.
+      // Le serveur d'origine de l'éditeur appelle POST /v1/uploads et
+      // transmet uploadId + widgetToken à cette iframe via postMessage.
+      window.addEventListener('message', function (ev) {
+        var data = ev.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type === 'plik-saas:init' && data.uploadId && data.widgetToken) {
+          window.__plikUpload = { id: data.uploadId, token: data.widgetToken };
+          setErr('');
+        }
+      });
+
+      function humanSize(n) {
+        var u = ['o', 'Ko', 'Mo', 'Go', 'To'];
+        var i = 0;
+        while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+        return n.toFixed(1) + ' ' + u[i];
+      }
+
+      function upload(file) {
+        setErr('');
+        linkbox.style.display = 'none';
+        var up = window.__plikUpload;
+        if (!up) {
+          setErr("Session d'upload non initialisée par l'application hôte.");
+          return;
+        }
+        progress.style.display = 'block';
+        bar.style.width = '0%';
+        plabel.textContent = 'Préparation...';
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', BASE + '/v1/uploads/' + encodeURIComponent(up.id) + '/files');
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.setRequestHeader('X-Widget-Token', up.token);
+        try {
+          xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+          xhr.setRequestHeader('X-File-Size', String(file.size));
+        } catch (e) { /* défauts sûrs côté serveur */ }
+
+        if (xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev.lengthComputable) {
+              var pct = (ev.loaded / ev.total) * 100;
+              bar.style.width = pct.toFixed(1) + '%';
+              plabel.textContent = humanSize(ev.loaded) + ' / ' + humanSize(ev.total) +
+                ' (' + pct.toFixed(0) + '%)';
+            }
+          };
+        }
+
+        xhr.onload = function () {
+          var data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (xhr.status >= 200 && xhr.status < 300 && data) {
+            bar.style.width = '100%';
+            plabel.textContent = 'Terminé : ' + humanSize(data.size || file.size);
+            showLink(up, data);
+          } else {
+            progress.style.display = 'none';
+            setErr((data && data.error) || 'Échec de l upload (HTTP ' + xhr.status + ')');
+          }
+        };
+        xhr.onerror = function () {
+          progress.style.display = 'none';
+          setErr('Erreur réseau pendant l upload.');
+        };
+        xhr.send(file);
+      }
+
+      function showLink(up, fileData) {
+        // Demande un lien signé avec le jeton widget.
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', BASE + '/v1/uploads/' + encodeURIComponent(up.id) + '/links');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('X-Widget-Token', up.token);
+        xhr.onload = function () {
+          var data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (xhr.status >= 200 && xhr.status < 300 && data && data.url) {
+            link.href = data.url;
+            link.textContent = data.url;
+            linkmeta.textContent = 'Expire : ' + new Date(data.expiresAt).toLocaleString('fr-FR') +
+              (data.oneShot ? ' · à usage unique' : '');
+            linkbox.style.display = 'block';
+            // Notifie l'application hôte.
+            if (window.parent !== window) {
+              window.parent.postMessage({
+                type: 'plik-saas:done',
+                payload: {
+                  uploadId: up.id,
+                  fileId: fileData.fileId,
+                  filename: fileData.filename,
+                  size: fileData.size,
+                  url: data.url,
+                  expiresAt: data.expiresAt,
+                },
+              }, '*');
+            }
+          } else {
+            setErr((data && data.error) || 'Lien indisponible.');
+          }
+        };
+        xhr.onerror = function () { setErr('Erreur réseau pour le lien.'); };
+        xhr.send(JSON.stringify({ fileId: fileData.fileId }));
+      }
+
+      copyBtn.addEventListener('click', function () {
+        if (navigator.clipboard && link.href && link.href !== '#') {
+          navigator.clipboard.writeText(link.href).then(function () {
+            copyBtn.textContent = 'Copié !';
+            setTimeout(function () { copyBtn.textContent = 'Copier le lien'; }, 1500);
+          }, function () { setErr('Copie impossible, sélectionnez le lien.'); });
+        }
+      });
+
+      drop.addEventListener('click', function () { fileInput.click(); });
+      drop.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+      });
+      ['dragenter', 'dragover'].forEach(function (t) {
+        drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); });
+      });
+      ['dragleave', 'drop'].forEach(function (t) {
+        drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+      });
+      drop.addEventListener('drop', function (e) {
+        var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) upload(f);
+      });
+      fileInput.addEventListener('change', function () {
+        if (fileInput.files && fileInput.files[0]) upload(fileInput.files[0]);
+      });
+    })();
+  </script>
+</body>
+</html>

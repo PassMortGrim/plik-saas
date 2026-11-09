@@ -1,0 +1,13 @@
+# Secrets et configuration locale — JAMAIS commiter
+.env
+plikd.cfg
+
+# Données persistantes de la passerelle
+data/
+store.json
+*.tmp
+
+# Divers
+node_modules/
+*.log
+.DS_Store

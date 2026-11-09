@@ -1,0 +1,51 @@
+services:
+  plik:
+    # Serveur Plik : jamais exposé publiquement, réseau backend uniquement.
+    image: rootgg/plik:latest
+    restart: unless-stopped
+    volumes:
+      - ./plikd.cfg:/home/plik/server/plikd.cfg:ro
+      - plik-data:/home/plik/server/data
+    networks:
+      - backend
+
+  gateway:
+    # Passerelle multi-tenant : API publique (réseau frontend) + Plik (backend).
+    build: ./gateway
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - gateway-data:/app/data
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - plik
+
+  caddy:
+    # Entrée TLS unique : ports 80/443 seulement.
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PLIK_DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - frontend
+    depends_on:
+      - gateway
+
+networks:
+  frontend: {}
+  backend: {}
+
+volumes:
+  plik-data: {}
+  gateway-data: {}
+  caddy-data: {}
+  caddy-config: {}
