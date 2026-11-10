@@ -24,6 +24,14 @@ const { StubPlik, bootGateway, jsonFetch, sleep } = require('./helpers');
 let stub;
 let gw;
 
+// Filet de sécurité CI : si une promesse attendue ne résout jamais
+// (socket zombie, flux non terminé, handler muet), abandonner après
+// 120 s avec un message clair plutôt que laisser le job expirer (10 min).
+const watchdog = setTimeout(() => {
+  console.error('\n[WATCHDOG] Suite bloquée depuis 120 s — abandon du process.');
+  process.exit(1);
+}, 120000);
+
 before(async () => {
   stub = new StubPlik();
   await stub.start();
@@ -33,6 +41,7 @@ before(async () => {
 after(async () => {
   await gw.stop();
   await stub.stop();
+  clearTimeout(watchdog);
 });
 
 // --- helpers --------------------------------------------------------------
