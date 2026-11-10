@@ -3,8 +3,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Aucune dépendance npm : uniquement la bibliothèque standard.
+COPY package.json ./
 COPY src/ ./src/
 COPY public/ ./public/
+COPY test/ ./test/
 
 # Données persistantes (store.json) accessibles à l'utilisateur non-root.
 RUN mkdir -p /app/data && chown -R node:node /app

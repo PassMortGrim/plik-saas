@@ -64,22 +64,30 @@ plik-saas/
 ├── plikd.cfg.template        # Config Plik (S3 Scaleway)
 ├── gateway/                  # Passerelle multi-tenant (Node 20)
 │   ├── Dockerfile
+│   ├── package.json          # scripts npm (start, test) — zéro dépendance
 │   ├── src/
 │   │   ├── index.js          # Boot + arrêt propre
 │   │   ├── config.js         # Configuration validée
 │   │   ├── server.js         # API publique + admin (localhost)
 │   │   ├── admin.js          # CLI d'administration
-│   │   ├── plik.js           # Client REST Plik (streaming)
+│   │   ├── plik.js           # Client REST Plik 1.4.x (multipart, streaming)
 │   │   ├── store.js          # Persistance atomique (tenants/quota/uploads)
 │   │   ├── webhooks.js       # Livraison HMAC + retries + SSRF guard
-│   │   ├── janitor.js        # Expirations TTL + événements OneShot
+│   │   ├── janitor.js        # Expirations TTL + purge (jamais de GET OneShot)
 │   │   └── util.js           # Jetons, scrypt, rate limiting, sanitize
+│   ├── test/                 # Tests automatisés (node:test, zéro dépendance)
+│   │   ├── helpers.js        # Stub Plik (API réelle) + boot passerelle
+│   │   ├── util.test.js      # Jetons, scrypt, sanitize, rate limiting
+│   │   ├── store.test.js     # Tenants, clés, quotas, persistance
+│   │   ├── ssrf.test.js      # SSRF webhooks + signature HMAC + retries
+│   │   └── integration.test.js # Auth, quotas, OneShot, janitor (bout-en-bout)
 │   └── public/
 │       ├── widget.js         # SDK navigateur
 │       └── widget-page.html  # Page iframe
 └── docs/
     ├── index.md              # Documentation API (FR)
-    └── openapi.yaml          # Spécification OpenAPI 3.1
+    ├── openapi.yaml          # Spécification OpenAPI 3.1
+    └── deploy-oracle.md      # Staging gratuit Oracle Always Free (ARM)
 ```
 
 ## Sécurité
@@ -103,14 +111,29 @@ Bande passante sortante incluse | 1 To (Hetzner) puis ~1 €/To
 **Coût marginal par Go transféré** | **~0,01 €**
 **Prix de vente cible** | **0,03-0,05 €/Go** (ou 29-299 €/mois par tenant)
 
+## Tests
+
+Suite de tests automatisés (aucune dépendance npm, Node 20 requis) :
+
+```bash
+cd gateway && npm test        # ou : node --test test/
+```
+
+Couvre : auth (clés API, jetons widget, admin), quotas mensuels, OneShot
+(consommation, téléchargement interrompu, événement unique), garde SSRF des
+webhooks, signature HMAC, persistance du store, janitor TTL.
+Le stub Plik (`test/helpers.js`) implémente l'API réelle de Plik 1.4.x
+(multipart `POST /file/{id}`, `X-UploadToken`, OneShot consommé au GET).
+
 ## Statut et limites honnêtes
 
-- **MVP** : code écrit et revu (security review, correctifs intégrés) mais
-  **jamais exécuté** dans cet environnement. Testez sur un VPS de staging
-  avant tout client payant.
-- Les en-têtes/noms de champs de l'API Plik (`X-Upload-Auth`, `X-File-Name`
-  en base64, `?stream=true`) et les clés de `plikd.cfg` suivent Plik 1.3.x :
-  à valider contre la version exacte déployée lors des tests de staging.
+- **MVP** : code écrit, revu (security review, correctifs intégrés) et validé
+  contre le code source de Plik 1.4.x (en-tête `X-UploadToken`, ajout de
+  fichier en multipart `POST /file/{id}`, `plikd.cfg` au format plat exact).
+  Suite de tests incluse mais **à exécuter sur votre machine/CI** (pas de Node
+  dans l'environnement d'écriture) : voir la section Tests.
+- Staging gratuit recommandé : [docs/deploy-oracle.md](docs/deploy-oracle.md)
+  (Oracle Always Free ARM + Scaleway S3).
 - Store JSON : adapté au lancement ; migration PostgreSQL planifiée.
 - Chiffrement côté client : roadmap.
 

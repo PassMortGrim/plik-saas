@@ -53,7 +53,7 @@ Rotation recommandée des clés API : 90 jours (double clé pendant la transitio
 - Rate limiting applicatif (RateLimiter) sur auth, API, création d'uploads + purge mémoire.
 - Comptabilité d'un téléchargement **réel** uniquement (fermeture de flux terminée), anti-doublon OneShot.
 - Webhooks : file persistante (survit aux redémarrages), 5 tentatives, abandon journalisé.
-- Janitor : purge des expirés toutes les 30 s ; Plik applique aussi son propre TTL (défense en profondeur).
+- Janitor : purge des expirés toutes les 30 s ; Plik applique aussi son propre TTL (défense en profondeur). Le janitor ne fait **jamais** de GET sur les fichiers OneShot (un GET consomme le OneShot côté Plik) : le comptage des téléchargements se fait uniquement via les événements de la passerelle, qui est le seul point d'entrée public.
 
 ## 7. Playbook incident
 
@@ -71,7 +71,8 @@ Merci de NE PAS ouvrir d'issue publique pour une faille de sécurité.
 
 - [ ] Migration store JSON → PostgreSQL (contrôle d'accès, sauvegardes PITR).
 - [ ] Chiffrement côté client optionnel (mot de passe du lien, style Firefox Send).
-- [ ] Suite de tests automatisés (auth, quotas, SSRF, OneShot) en CI.
+- [x] Suite de tests automatisés (auth, quotas, SSRF, OneShot) : `gateway/test/` (`node --test`).
+      CI GitHub Actions à brancher pour exécution automatique à chaque push.
 - [ ] Scan continue des images Docker (Trivy) + audit dépendances (npm audit).
 - [ ] Détection d'intrusion (fail2ban avancé ou Wazuh, coût RAM à évaluer).
 
