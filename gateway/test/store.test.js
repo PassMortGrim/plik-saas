@@ -75,7 +75,8 @@ test('uploads : création, liste active, purge des anciens', () => {
 
 test('webhookQueue + persistance save/load', () => {
   const { store, dir } = tmpStore();
-  const t = store.createTenant({ name: 'W', webhookUrl: 'https://example.com/hook' });
+  // NB : nom ≥ 2 caractères (validation de createTenant).
+  const t = store.createTenant({ name: 'WH', webhookUrl: 'https://example.com/hook' });
   store.addKey(t.id);
 
   // simuler un événement en file
@@ -88,7 +89,7 @@ test('webhookQueue + persistance save/load', () => {
   const store2 = new Store(dir);
   store2.load();
   assert.equal(store2.listTenants().length, 1);
-  assert.equal(store2.listTenants()[0].name, 'W');
+  assert.equal(store2.listTenants()[0].name, 'WH');
   assert.equal(store2.data.webhookQueue.length, 1);
   assert.equal(store2.data.webhookQueue[0].type, 'file.uploaded');
   assert.ok(store2.tenantByApiKeyId(Object.keys(store2.getTenant(t.id).keys)[0]));
