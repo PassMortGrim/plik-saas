@@ -210,6 +210,27 @@ class StubPlik {
 // IMPORTANT : fixe process.env AVANT tout require('../src/...') car
 // config.js lit l'environnement au chargement du module.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Démarrage de la passerelle en environnement de test.
+// IMPORTANT : fixe process.env AVANT tout require('../src/...') car
+// config.js lit l'environnement au chargement du module.
+// ---------------------------------------------------------------------------
+
+/**
+ * Attend qu'un serveur écoute, SANS course sur l'événement 'listening' :
+ * startServers() appelle listen() sur les deux serveurs d'un coup, et
+ * pendant qu'on await le premier 'listening', le second a déjà émis le
+ * sien — un once('listening') attaché après coup ne le voit jamais.
+ * D'où la vérification server.listening AVANT l'attachement.
+ */
+function waitForListening(server) {
+  if (server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+}
+
 async function bootGateway(plikPort) {
   process.env.ADMIN_TOKEN = crypto.randomBytes(24).toString('hex');
   process.env.PUBLIC_PORT = '0';
@@ -226,16 +247,9 @@ async function bootGateway(plikPort) {
   store.load();
   const { publicServer, adminServer } = startServers(store);
 
-  // Le binding est asynchrone : attendre 'listening' avant de lire le port.
-  // (rejet explicite sur 'error' : un échec de bind doit se voir, pas geler.)
-  await new Promise((resolve, reject) => {
-    publicServer.once('listening', resolve);
-    publicServer.once('error', reject);
-  });
-  await new Promise((resolve, reject) => {
-    adminServer.once('listening', resolve);
-    adminServer.once('error', reject);
-  });
+  // Le binding est asynchrone : attendre l'écoute effective des deux serveurs.
+  await waitForListening(publicServer);
+  await waitForListening(adminServer);
   const publicPort = publicServer.address().port;
   const adminPort = adminServer.address().port;
 
