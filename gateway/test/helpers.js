@@ -210,11 +210,6 @@ class StubPlik {
 // IMPORTANT : fixe process.env AVANT tout require('../src/...') car
 // config.js lit l'environnement au chargement du module.
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Démarrage de la passerelle en environnement de test.
-// IMPORTANT : fixe process.env AVANT tout require('../src/...') car
-// config.js lit l'environnement au chargement du module.
-// ---------------------------------------------------------------------------
 
 /**
  * Attend qu'un serveur écoute, SANS course sur l'événement 'listening' :
