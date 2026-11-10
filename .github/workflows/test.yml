@@ -1,5 +1,7 @@
 # CI Plik-SaaS : tests automatisés à chaque push / pull request.
-# Zéro dépendance npm → pas d'étape d'installation, rapide (~30 s).
+# Zéro dépendance npm → pas d'étape d'installation, rapide.
+# Étapes séparées par groupe : si un groupe bloque/échoue, le log
+# montre immédiatement lequel (diagnostic rapide).
 
 name: CI
 
@@ -15,7 +17,7 @@ jobs:
   test:
     name: Tests passerelle (node:test)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v7
@@ -33,6 +35,14 @@ jobs:
             node --check "$f"
           done
 
-      - name: Tests
+      - name: Tests unitaires (util, store)
         working-directory: gateway
-        run: npm test
+        run: node --test test/util.test.js test/store.test.js
+
+      - name: Tests SSRF (webhooks)
+        working-directory: gateway
+        run: node --test test/ssrf.test.js
+
+      - name: Tests intégration (auth, quotas, OneShot, janitor)
+        working-directory: gateway
+        run: node --test test/integration.test.js

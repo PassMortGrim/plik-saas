@@ -368,7 +368,17 @@ function startServers(store) {
           if (!res.writableEnded) {
             const seen = res.getHeader('content-range');
             const done = seen && String(seen).startsWith('bytes 0-');
-            if (!done) return; // interrompu : pas compté comme téléchargé
+            if (!done) {
+              // Interrompu par le client : couper AUSSI le flux amont,
+              // sinon la réponse fetch reste ouverte à jamais (fuite
+              // socket + mémoire tampon chez le stockage).
+              try {
+                upstream.body.cancel();
+              } catch {
+                /* déjà fermé */
+              }
+              return; // interrompu : pas compté comme téléchargé
+            }
           }
           const bytesOut = file.size || 0;
           upload.bytesOut += bytesOut;

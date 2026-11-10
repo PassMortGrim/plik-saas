@@ -13,8 +13,13 @@ const assert = require('node:assert');
 const http = require('http');
 
 const { StubPlik, bootGateway, jsonFetch, sleep } = require('./helpers');
-const { sweepOnce } = require('../src/janitor');
-const { PlikClient } = require('../src/plik');
+
+// ⚠️ NE JAMAIS require('../src/*') au niveau du fichier ici :
+// config.js lit process.env au chargement du module, or l'environnement
+// de test (PLIK_URL, ADMIN_TOKEN, ports éphémères) n'est fixé que dans
+// bootGateway(). Un require prématuré verrouillerait les valeurs par
+// défaut (plik:8080) et chaque appel amont échouerait lentement en DNS.
+// → les modules src sont require() au besoin DANS les tests (janitor).
 
 let stub;
 let gw;
@@ -278,6 +283,11 @@ test('ONESHOT : téléchargement interrompu non compté, fichier préservé', as
 // ===========================================================================
 
 test('JANITOR : TTL écoulé → expired + purge Plik + event ; 404 amont toléré', async () => {
+  // require() tardifs : l'environnement (PLIK_URL, ADMIN_TOKEN...) est
+  // déjà fixé par bootGateway() → config.js est chargée avec les bonnes valeurs.
+  const { sweepOnce } = require('../src/janitor');
+  const { PlikClient } = require('../src/plik');
+
   const t = newTenant({ webhookUrl: 'https://example.com/hook' });
   const plik = new PlikClient('http://127.0.0.1:' + stub.port);
 
