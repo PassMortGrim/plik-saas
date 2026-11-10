@@ -225,7 +225,7 @@ function startServers(store) {
     const type = (req.headers['content-type'] || 'application/octet-stream').slice(0, 120);
     try {
       // Streaming direct de la requête entrante vers Plik : mémoire constante.
-      const fileMeta = await plik.addFileStream(upload.id, upload.plikToken, filename, type, req);
+      const fileMeta = await plik.addFile(upload.id, upload.plikToken, filename, type, req);
       delete upload.files.pending;
       upload.files[fileMeta.id] = {
         id: fileMeta.id,

@@ -1,48 +1,62 @@
-// plikd.cfg — configuration Plik, générée par deploy.sh depuis ce template.
-// Format HOCON, réutilise la structure du plikd.cfg officiel du dépôt Plik :
-// https://github.com/root-gg/plik — vérifiez les clés contre la version déployée.
-//
-// Sécurité : ce fichier contient les secrets S3 après substitution,
-// il est exclu par .gitignore et chmod 600 par deploy.sh.
+;; plikd.cfg — configuration Plik, générée par deploy.sh depuis ce template.
+;;
+;; Format PLAT identique au plikd.cfg officiel du dépôt Plik
+;; (https://github.com/root-gg/plik/blob/master/server/plikd.cfg),
+;; validé contre le code source de Plik 1.4.x.
+;;
+;; Sécurité : après substitution ce fichier contient les secrets S3.
+;; Il est exclu par .gitignore et chmod 600 par deploy.sh : ne JAMAIS le commiter.
 
-plikd "1.0" {
+Debug               = false
+LogLevel            = "INFO"
 
-    // Domaine utilisé par Plik en interne uniquement : la passerelle
-    // génère ses propres liens signés, Plik n'est jamais exposé.
-    Domain = "localhost"
+ListenPort          = 8080
+ListenAddress       = "0.0.0.0"
 
-    // Écoute sur le réseau Docker backend uniquement (pas de ports publiés).
-    ListenAddress = "0.0.0.0"
-    ListenPort    = 8080
+;; Pas d'interface web : accès uniquement via la passerelle (réseau backend).
+NoWebInterface      = true
+PlikDomain          = ""
+DownloadDomain      = ""
 
-    // Métadonnées des uploads : SQLite local (volume Docker plik-data).
-    "MetadataBackend" {
-        "File" {
-            "ConnectionString" = "data/plik.db"
-        }
-    }
+;; TLS est terminé par Caddy en amont.
+AssumeHTTPS         = false
 
-    // Données binaires : Object Storage Scaleway (S3, UE/fr-par).
-    // Les placeholders __SCW_*__ sont remplacés par deploy.sh.
-    "DataBackend" {
-        "S3" {
-            "Endpoint"        = "__SCW_ENDPOINT__"
-            "AccessKeyID"     = "__SCW_ACCESS_KEY__"
-            "SecretAccessKey" = "__SCW_SECRET_KEY__"
-            "Bucket"          = "__SCW_BUCKET__"
-            "Location"        = "__SCW_REGION__"
-        }
-    }
+;; 220 Go (décimal) : marge au-dessus du plafond passerelle (200 Gio = 214,7 Go).
+MaxFileSizeStr      = "220GB"
+MaxFilePerUpload    = 100
 
-    // TTL et taille max appliqués aussi côté Plik (défense en profondeur) :
-    // la passerelle impose déjà les siens avant chaque transfert.
-    "Upload" {
-        "DefaultTTL" = 3600
-        "MaxTTL"     = 2592000
-        "OneShot"    = false
-        "Removable"  = true
-        "Stream"     = true
-        // 200 Go par fichier (aligné sur MAX_FILE_BYTES de la passerelle).
-        "MaxFileSize" = 214748364800
-    }
-}
+;; Mêmes bornes que la passerelle (défaut 1 h, plafond 30 jours).
+DefaultTTLStr       = "1h"
+MaxTTLStr           = "720h"
+
+;; Multi-tenancy, quotas et auth : gérés par la passerelle, PAS par Plik.
+FeatureAuthentication = "disabled"
+FeatureOneShot        = "enabled"
+FeatureRemovable      = "enabled"
+FeatureStream         = "enabled"
+FeatureSetTTL         = "enabled"
+
+;; Plik n'est joignable que depuis le réseau Docker backend.
+UploadWhitelist      = []
+
+DataBackend = "s3"
+
+[DataBackendConfig]
+    ;; Endpoint SANS schéma (https implicite via UseSSL).
+    Endpoint        = "__SCW_ENDPOINT__"
+    AccessKeyID     = "__SCW_ACCESS_KEY__"
+    SecretAccessKey = "__SCW_SECRET_KEY__"
+    Bucket          = "__SCW_BUCKET__"
+    Location        = "__SCW_REGION__"
+    Prefix          = ""
+    UseSSL          = true
+    ;; 20 MiB par part : 20 000 parts max côté S3 → 200 Gio par fichier,
+    ;; au-dessus des 10 000 parts S3 avec le défaut 16 MiB (~160 Gio seulement).
+    PartSize        = 20971520
+    PartUploadConcurrency = 4
+
+[MetadataBackendConfig]
+    Driver = "sqlite3"
+    ;; Relatif au répertoire du serveur Plik (/home/plik/server),
+    ;; donc dans le volume persistant plik-data monté sur .../data.
+    ConnectionString = "data/plik.db"

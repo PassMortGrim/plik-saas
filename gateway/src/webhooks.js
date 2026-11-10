@@ -13,6 +13,7 @@ const dnsLookup = promisify(dns.lookup);
  *
  * Anti-SSRF : URL HTTPS obligatoire, nom de domaine public uniquement
  * (pas d'IP littérale), résolution DNS vérifiée contre les plages privées.
+ * La fonction de résolution est injectable pour les tests.
  */
 
 const BACKOFF_MS = [30e3, 120e3, 600e3, 3600e3]; // 30 s → 2 min → 10 min → 1 h
@@ -42,8 +43,12 @@ function isPrivateIp(ip) {
   );
 }
 
-/** Retourne null si l'URL est acceptable, sinon la raison du refus. */
-async function validateWebhookUrl(url) {
+/**
+ * Retourne null si l'URL est acceptable, sinon la raison du refus.
+ * `lookup` injectable pour les tests (défaut : dns.lookup).
+ */
+async function validateWebhookUrl(url, lookup) {
+  const resolve = lookup || dnsLookup;
   let u;
   try {
     u = new URL(url);
@@ -60,11 +65,11 @@ async function validateWebhookUrl(url) {
   }
   let records;
   try {
-    records = await dnsLookup(host, { all: true });
+    records = await resolve(host, { all: true });
   } catch {
     return 'Nom de domaine non resoluble';
   }
-  if (records.length === 0) return 'Nom de domaine non resoluble';
+  if (!Array.isArray(records) || records.length === 0) return 'Nom de domaine non resoluble';
   for (const r of records) {
     if (isPrivateIp(r.address)) return `IP privee interdite (${r.address})`;
   }
@@ -100,37 +105,48 @@ function emit(store, tenant, type, data) {
   return entry;
 }
 
-/** Livre un événement. true = succès (ou abandon définitif), false = retenter. */
-async function deliver(store, entry) {
-  const tenant = store.getTenant(entry.tenantId);
-  if (!tenant || !tenant.webhookUrl || !tenant.webhookSecret) {
-    return true; // tenant supprimé / webhook retiré : abandon silencieux
-  }
-  const reason = await validateWebhookUrl(tenant.webhookUrl);
-  if (reason) {
-    console.warn(`[webhook] ${tenant.id} : URL refusee (${reason}) — abandon de ${entry.id}`);
-    return true; // configuration invalide : inutile de retenter
-  }
-
+/** POST signé HMAC. Retourne true si réponse 2xx. */
+async function postWebhook(url, secret, eventId, body, timeoutMs) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), cfg.webhookTimeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs || cfg.webhookTimeoutMs);
   try {
-    const res = await fetch(tenant.webhookUrl, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Saas-Event-Id': entry.id,
-        'X-Saas-Signature': 'sha256=' + hmac(tenant.webhookSecret, entry.body),
+        'X-Saas-Event-Id': eventId,
+        'X-Saas-Signature': 'sha256=' + hmac(secret, body),
       },
-      body: entry.body,
+      body,
       signal: controller.signal,
     });
     return res.ok; // 2xx = livré
   } catch {
-    return false; // timeout / réseau : retenter
+    return false; // timeout / réseau
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Livre un événement. true = livré (ou abandon définitif), false = retenter.
+ * opts (tests) : { validate, post } pour injecter les dépendances.
+ */
+async function deliver(store, entry, opts) {
+  const o = opts || {};
+  const validate = o.validate || validateWebhookUrl;
+  const post = o.post || postWebhook;
+
+  const tenant = store.getTenant(entry.tenantId);
+  if (!tenant || !tenant.webhookUrl || !tenant.webhookSecret) {
+    return true; // tenant supprimé / webhook retiré : abandon silencieux
+  }
+  const reason = await validate(tenant.webhookUrl);
+  if (reason) {
+    console.warn(`[webhook] ${tenant.id} : URL refusee (${reason}) — abandon de ${entry.id}`);
+    return true; // configuration invalide : inutile de retenter
+  }
+  return post(tenant.webhookUrl, tenant.webhookSecret, entry.id, entry.body, cfg.webhookTimeoutMs);
 }
 
 /** Boucle de traitement (appelée toutes les 5 s par index.js). */
@@ -172,4 +188,4 @@ async function processQueue(store) {
   }
 }
 
-module.exports = { emit, processQueue, validateWebhookUrl };
+module.exports = { emit, processQueue, deliver, postWebhook, validateWebhookUrl, isPrivateIp };
