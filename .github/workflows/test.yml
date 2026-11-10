@@ -43,9 +43,6 @@ jobs:
         working-directory: gateway
         run: node --test test/ssrf.test.js
 
-      # Exécution DIRECTE (pas via `node --test`) : le reporter affiche
-      # chaque test dès qu'il termine → en cas de gel, le log montre le
-      # dernier test passé et donc celui qui bloque.
       - name: Tests intégration (auth, quotas, OneShot, janitor)
         working-directory: gateway
-        run: node test/integration.test.js
+        run: node --test test/integration.test.js

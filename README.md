@@ -57,6 +57,7 @@ Le script est idempotent : relançable sans casser une installation saine.
 
 ```
 plik-saas/
+├── .github/workflows/test.yml # CI : tests à chaque push / PR
 ├── deploy.sh                 # Installation/déploiement idempotent (bash)
 ├── docker-compose.yml        # plik + gateway + caddy
 ├── Caddyfile                 # Reverse proxy TLS
@@ -120,18 +121,20 @@ cd gateway && npm test        # ou : node --test test/
 ```
 
 Couvre : auth (clés API, jetons widget, admin), quotas mensuels, OneShot
-(consommation, téléchargement interrompu, événement unique), garde SSRF des
-webhooks, signature HMAC, persistance du store, janitor TTL.
+(consommé au GET comme Plik, interruption non facturée, événement unique),
+garde SSRF des webhooks, signature HMAC, persistance du store, janitor TTL.
 Le stub Plik (`test/helpers.js`) implémente l'API réelle de Plik 1.4.x
-(multipart `POST /file/{id}`, `X-UploadToken`, OneShot consommé au GET).
+(multipart `POST /file/{id}`, `X-UploadToken`, OneShot consommé au début du GET).
+
+CI : [GitHub Actions](https://github.com/PassMortGrim/plik-saas/actions)
+exécute la suite complète à chaque push et pull request.
 
 ## Statut et limites honnêtes
 
 - **MVP** : code écrit, revu (security review, correctifs intégrés) et validé
   contre le code source de Plik 1.4.x (en-tête `X-UploadToken`, ajout de
   fichier en multipart `POST /file/{id}`, `plikd.cfg` au format plat exact).
-  Suite de tests incluse mais **à exécuter sur votre machine/CI** (pas de Node
-  dans l'environnement d'écriture) : voir la section Tests.
+  Suite de tests **verte en CI** (GitHub Actions, à chaque push).
 - Staging gratuit recommandé : [docs/deploy-oracle.md](docs/deploy-oracle.md)
   (Oracle Always Free ARM + Scaleway S3).
 - Store JSON : adapté au lancement ; migration PostgreSQL planifiée.

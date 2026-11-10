@@ -72,7 +72,7 @@ Merci de NE PAS ouvrir d'issue publique pour une faille de sécurité.
 - [ ] Migration store JSON → PostgreSQL (contrôle d'accès, sauvegardes PITR).
 - [ ] Chiffrement côté client optionnel (mot de passe du lien, style Firefox Send).
 - [x] Suite de tests automatisés (auth, quotas, SSRF, OneShot) : `gateway/test/` (`node --test`).
-      CI GitHub Actions à brancher pour exécution automatique à chaque push.
+- [x] CI GitHub Actions : `.github/workflows/test.yml`, exécution à chaque push/PR (Node 20, zéro dépendance) — suite verte.
 - [ ] Scan continue des images Docker (Trivy) + audit dépendances (npm audit).
 - [ ] Détection d'intrusion (fail2ban avancé ou Wazuh, coût RAM à évaluer).
 
