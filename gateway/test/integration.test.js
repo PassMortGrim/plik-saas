@@ -26,7 +26,7 @@ let gw;
 
 // Filet de sécurité CI : si une promesse attendue ne résout jamais
 // (socket zombie, flux non terminé, handler muet), abandonner après
-// 120 s avec un message clair plutôt que laisser le job expirer (10 min).
+// 60 s avec un message clair plutôt que laisser le job expirer (10 min).
 const watchdog = setTimeout(() => {
   console.error('\n[WATCHDOG] Suite bloquée depuis 60 s. Handles actifs :');
   try {
@@ -47,12 +47,9 @@ const watchdog = setTimeout(() => {
 }, 60000);
 
 before(async () => {
-  console.error('[diag] before() demarre');
   stub = new StubPlik();
   await stub.start();
-  console.error('[diag] stub pret, port=' + stub.port);
   gw = await bootGateway(stub.port);
-  console.error('[diag] gateway pret, public=' + gw.publicPort + ' admin=' + gw.adminPort);
 });
 
 after(async () => {
@@ -268,7 +265,7 @@ test('ONESHOT : 1er téléchargement 200 compté, 2e → 410, event unique', asy
   assert.equal(d2.status, 410);
 });
 
-test('ONESHOT : téléchargement interrompu non compté, fichier préservé', async () => {
+test('ONESHOT : interrompu non compté en facturation, mais consommé en amont (Plik réel)', async () => {
   const t = newTenant();
   const up = await createUpload(t.apiKey, {
     filename: 'large.bin',
@@ -293,15 +290,17 @@ test('ONESHOT : téléchargement interrompu non compté, fichier préservé', as
   });
   await sleep(300);
 
+  // Facturation : un flux interrompu n'est PAS compté côté passerelle
   const upload = gw.store.getUpload(up.body.uploadId);
   assert.equal(upload.bytesOut, 0, 'un flux interrompu ne doit pas être compté');
   assert.equal(upload.notifiedEvents['downloaded:' + f.body.fileId], undefined);
 
-  // Le fichier n'a PAS été consommé : un GET complet passe encore
+  // Sémantique Plik réelle (server/handlers/get_file.go) : le GET marque
+  // le fichier OneShot Removed DÈS LE DÉBUT de la requête, interruption
+  // ou pas → le 2e GET renvoie 404 amont → 410 passerelle. Une
+  // interruption ne peut pas « préserver » un OneShot.
   const d = await fetch(local);
-  assert.equal(d.status, 200);
-  const txt = await d.text();
-  assert.equal(txt, content);
+  assert.equal(d.status, 410);
 });
 
 // ===========================================================================

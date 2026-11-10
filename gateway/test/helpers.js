@@ -168,8 +168,10 @@ class StubPlik {
     }
 
     // GET /file/{uploadId}/{fileId}/{filename} — téléchargement.
-    // OneShot : le GET consomme le fichier (comportement réel Plik),
-    // mais seulement si la réponse a été envoyée en entier.
+    // OneShot : le GET consomme le fichier DÈS LE DÉBUT de la requête,
+    // même si le client interrompt ensuite. C'est le comportement réel de
+    // Plik (server/handlers/get_file.go : UpdateFileStatus → FileRemoved
+    // AVANT d'écrire le corps ; la purge suit l'envoi, interruption ou non).
     if ((req.method === 'GET' || req.method === 'HEAD') && parts[0] === 'file' && parts.length === 4) {
       const upload = this.uploads.get(parts[1]);
       const file = upload && upload.files.get(parts[2]);
@@ -179,17 +181,15 @@ class StubPlik {
       if (decodeURIComponent(parts[3]) !== file.fileName) {
         return this.json(res, 404, { message: `file "${parts[3]}" not found` });
       }
+      if (req.method === 'GET' && upload.oneShot) {
+        upload.files.delete(parts[2]);
+        if (upload.files.size === 0) this.uploads.delete(upload.id);
+      }
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Length': file.content.length,
       });
       res.end(file.content);
-      res.on('close', () => {
-        if (res.writableEnded && upload.oneShot) {
-          upload.files.delete(parts[2]);
-          if (upload.files.size === 0) this.uploads.delete(upload.id);
-        }
-      });
       return;
     }
 
