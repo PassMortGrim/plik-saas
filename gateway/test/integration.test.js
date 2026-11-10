@@ -28,14 +28,31 @@ let gw;
 // (socket zombie, flux non terminé, handler muet), abandonner après
 // 120 s avec un message clair plutôt que laisser le job expirer (10 min).
 const watchdog = setTimeout(() => {
-  console.error('\n[WATCHDOG] Suite bloquée depuis 120 s — abandon du process.');
+  console.error('\n[WATCHDOG] Suite bloquée depuis 60 s. Handles actifs :');
+  try {
+    for (const h of process._getActiveHandles()) {
+      const name = h.constructor && h.constructor.name ? h.constructor.name : typeof h;
+      const extra = [
+        h.fd !== undefined ? 'fd=' + h.fd : '',
+        h.remoteAddress ? 'vers ' + h.remoteAddress + ':' + h.remotePort : '',
+      ].filter(Boolean).join(' ');
+      let addr = '';
+      try {
+        if (h.address && h.listening) addr = 'ecoute ' + JSON.stringify(h.address());
+      } catch { /* best effort */ }
+      console.error('  - ' + name + (extra ? ' (' + extra + ')' : '') + (addr ? ' [' + addr + ']' : ''));
+    }
+  } catch { /* best effort */ }
   process.exit(1);
-}, 120000);
+}, 60000);
 
 before(async () => {
+  console.error('[diag] before() demarre');
   stub = new StubPlik();
   await stub.start();
+  console.error('[diag] stub pret, port=' + stub.port);
   gw = await bootGateway(stub.port);
+  console.error('[diag] gateway pret, public=' + gw.publicPort + ' admin=' + gw.adminPort);
 });
 
 after(async () => {

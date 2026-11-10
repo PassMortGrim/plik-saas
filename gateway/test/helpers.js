@@ -227,8 +227,15 @@ async function bootGateway(plikPort) {
   const { publicServer, adminServer } = startServers(store);
 
   // Le binding est asynchrone : attendre 'listening' avant de lire le port.
-  await new Promise((resolve) => publicServer.once('listening', resolve));
-  await new Promise((resolve) => adminServer.once('listening', resolve));
+  // (rejet explicite sur 'error' : un échec de bind doit se voir, pas geler.)
+  await new Promise((resolve, reject) => {
+    publicServer.once('listening', resolve);
+    publicServer.once('error', reject);
+  });
+  await new Promise((resolve, reject) => {
+    adminServer.once('listening', resolve);
+    adminServer.once('error', reject);
+  });
   const publicPort = publicServer.address().port;
   const adminPort = adminServer.address().port;
 
