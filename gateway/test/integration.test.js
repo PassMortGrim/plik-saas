@@ -22,7 +22,7 @@ let gw;
 before(async () => {
   stub = new StubPlik();
   await stub.start();
-  gw = bootGateway(stub.port);
+  gw = await bootGateway(stub.port);
 });
 
 after(async () => {

@@ -1,0 +1,38 @@
+# CI Plik-SaaS : tests automatisés à chaque push / pull request.
+# Zéro dépendance npm → pas d'étape d'installation, rapide (~30 s).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests passerelle (node:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v7
+
+      - name: Installer Node 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      - name: Vérification syntaxe (node --check)
+        working-directory: gateway
+        run: |
+          set -e
+          for f in src/*.js public/*.js test/*.js; do
+            node --check "$f"
+          done
+
+      - name: Tests
+        working-directory: gateway
+        run: npm test

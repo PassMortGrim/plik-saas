@@ -11,6 +11,25 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+/**
+ * Arrêt robuste d'un serveur HTTP : les connexions keep-alive d'undici
+ * (fetch) empêchent server.close() de terminer. On ferme les connexions
+ * inactives, avec filet de sécurité + timeout.
+ */
+function stopServer(server) {
+  return new Promise((resolve) => {
+    if (!server || server.listening === false) return resolve();
+    server.close(() => resolve());
+    if (server.closeIdleConnections) server.closeIdleConnections();
+    const force = setTimeout(() => {
+      if (server.closeAllConnections) server.closeAllConnections();
+    }, 500);
+    const hard = setTimeout(() => resolve(), 1500);
+    force.unref();
+    hard.unref();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Stub Plik : implémente exactement l'API utilisée par la passerelle
 // (POST /upload, POST /file/{id} multipart, GET /file/{u}/{f}/{name},
@@ -39,7 +58,7 @@ class StubPlik {
   }
 
   async stop() {
-    await new Promise((resolve) => this.server.close(resolve));
+    await stopServer(this.server);
   }
 
   json(res, code, obj) {
@@ -191,7 +210,7 @@ class StubPlik {
 // IMPORTANT : fixe process.env AVANT tout require('../src/...') car
 // config.js lit l'environnement au chargement du module.
 // ---------------------------------------------------------------------------
-function bootGateway(plikPort) {
+async function bootGateway(plikPort) {
   process.env.ADMIN_TOKEN = crypto.randomBytes(24).toString('hex');
   process.env.PUBLIC_PORT = '0';
   process.env.ADMIN_PORT = '0';
@@ -207,17 +226,23 @@ function bootGateway(plikPort) {
   store.load();
   const { publicServer, adminServer } = startServers(store);
 
+  // Le binding est asynchrone : attendre 'listening' avant de lire le port.
+  await new Promise((resolve) => publicServer.once('listening', resolve));
+  await new Promise((resolve) => adminServer.once('listening', resolve));
+  const publicPort = publicServer.address().port;
+  const adminPort = adminServer.address().port;
+
   return {
     store,
     dataDir,
-    publicPort: publicServer.address().port,
-    adminPort: adminServer.address().port,
+    publicPort,
+    adminPort,
     adminToken: process.env.ADMIN_TOKEN,
-    baseUrl: 'http://127.0.0.1:' + publicServer.address().port,
-    adminUrl: 'http://127.0.0.1:' + adminServer.address().port,
+    baseUrl: 'http://127.0.0.1:' + publicPort,
+    adminUrl: 'http://127.0.0.1:' + adminPort,
     async stop() {
-      await new Promise((r) => publicServer.close(r));
-      await new Promise((r) => adminServer.close(r));
+      await stopServer(publicServer);
+      await stopServer(adminServer);
       fs.rmSync(dataDir, { recursive: true, force: true });
     },
   };
